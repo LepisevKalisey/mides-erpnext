@@ -53,11 +53,7 @@ services:
 
         if [ ! -f "sites/frontend/site_config.json" ]; then
             echo "[create-site] No site found — creating...";
-            bench new-site frontend
-                --db-root-password "$$MYSQL_ROOT_PASSWORD"
-                --admin-password admin
-                --install-app erpnext
-                --force;
+            bench new-site frontend --db-root-password "$$MYSQL_ROOT_PASSWORD" --admin-password admin --install-app erpnext --force;
             echo "[create-site] Site created.";
         else
             echo "[create-site] Site exists — skipping creation.";
@@ -66,10 +62,7 @@ services:
         echo "[create-site] Fixing DB user GRANT for all container IPs...";
         DB_USER=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_user'])");
         DB_PASS=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_password'])");
-        mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "
-            GRANT ALL PRIVILEGES ON \`$$DB_USER\`.* TO '$$DB_USER'@'%' IDENTIFIED BY '$$DB_PASS';
-            FLUSH PRIVILEGES;
-        " && echo "[create-site] GRANT OK" || echo "[create-site] GRANT failed (non-fatal)";
+        mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON \`$$DB_USER\`.* TO '$$DB_USER'@'%' IDENTIFIED BY '$$DB_PASS'; FLUSH PRIVILEGES;" && echo "[create-site] GRANT OK" || echo "[create-site] GRANT failed (non-fatal)";
 
         echo "[create-site] Running migrate...";
         bench --site frontend migrate;
