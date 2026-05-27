@@ -22,6 +22,7 @@
 | 01 | [erpnext-capabilities.md](../02_research/01_erpnext-capabilities.md) | Возможности ERPNext для строительства | ACTIVE |
 | 02 | [usability-evaluation.md](../02_research/02_usability-evaluation.md) | Анализ юзабилити и соответствия ERPNext бизнес-требованиям | ACTIVE |
 | 03 | [procurement-workflow.md](../02_research/03_procurement-workflow.md) | Управление снабжением: пул заявок, распределение и сверка счетов | ACTIVE |
+| 04 | [marketplace-apps-analysis.md](../02_research/04_marketplace-apps-analysis.md) | Анализ и выбор приложений маркетплейса | ACTIVE |
 
 ### 📁 03_decisions — Решения
 
@@ -38,6 +39,7 @@
 | # | Документ | Назначение | Статус |
 |---|----------|------------|--------|
 | 01 | [system-overview.md](../04_architecture/01_system-overview.md) | Обзор архитектуры на ERPNext | ACTIVE |
+| 02 | [docker-architecture.md](../04_architecture/02_docker-architecture.md) | Архитектура Docker-контейнеров и деплоя в Coolify | ACTIVE |
 
 ### 📁 06_delivery — Доставка
 

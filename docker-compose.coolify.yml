@@ -51,12 +51,33 @@ services:
         wait-for-it -t 120 redis-queue:6379;
         echo "[create-site] Dependencies ready.";
 
-        if [ ! -f "sites/frontend/site_config.json" ]; then
-            echo "[create-site] No site found — creating...";
+        SITE_CONFIG="sites/frontend/site_config.json"
+        SHOULD_CREATE=0
+        if [ ! -f "$$SITE_CONFIG" ]; then
+            echo "[create-site] site_config.json not found — will create site.";
+            SHOULD_CREATE=1
+        else
+            echo "[create-site] site_config.json found — checking if database exists in MariaDB...";
+            DB_NAME=$$(python3 -c "import json; print(json.load(open('$$SITE_CONFIG')).get('db_name', ''))" 2>/dev/null || echo "")
+            if [ -z "$$DB_NAME" ]; then
+                echo "[create-site] Could not read db_name from site_config.json — recreating site.";
+                SHOULD_CREATE=1
+            else
+                DB_EXISTS=$$(mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "SHOW DATABASES LIKE '$$DB_NAME';" 2>/dev/null | grep "$$DB_NAME" || echo "")
+                if [ -z "$$DB_EXISTS" ]; then
+                    echo "[create-site] Database '$$DB_NAME' does not exist in MariaDB — recreating site.";
+                    SHOULD_CREATE=1
+                else
+                    echo "[create-site] Database '$$DB_NAME' exists.";
+                fi
+            fi
+        fi
+
+        if [ "$$SHOULD_CREATE" -eq 1 ]; then
             bench new-site frontend --db-root-password "$$MYSQL_ROOT_PASSWORD" --admin-password admin --install-app erpnext --force;
             echo "[create-site] Site created.";
         else
-            echo "[create-site] Site exists — skipping creation.";
+            echo "[create-site] Site and database exist — skipping creation.";
         fi;
 
         echo "[create-site] Fixing DB user GRANT for all container IPs...";
