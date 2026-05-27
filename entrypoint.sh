@@ -40,6 +40,8 @@ bench set-config -g redis_cache "redis://$REDIS_HOST:6379/0"
 bench set-config -g redis_queue "redis://$REDIS_HOST:6379/1"
 bench set-config -g redis_socketio "redis://$REDIS_HOST:6379/1"
 bench set-config -gp socketio_port 9000
+# Gunicorn listens on 8080 directly (no Nginx proxy)
+bench set-config -g webserver_port 8080
 
 # Ensure assets symlink
 echo "[entrypoint] Ensuring assets symlink..."
@@ -97,23 +99,6 @@ for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki
     bench --site "$SITE_NAME" install-app "$app" || true
 done
 
-# 7. Generate Nginx config
-echo "[entrypoint] Generating Nginx config..."
-bench set-config -g webserver_port 8000
-bench set-nginx-port "$SITE_NAME" 8080
-bench setup nginx
-
-# Modify config to be runnable by non-root user 'frappe'
-echo "[entrypoint] Adjusting Nginx config for non-root execution..."
-sed -i '/user /d' config/nginx.conf
-sed -i 's|pid /.*|pid /home/frappe/nginx.pid;|g' config/nginx.conf
-if ! grep -q "pid " config/nginx.conf; then
-    sed -i '1s|^|pid /home/frappe/nginx.pid;\n|' config/nginx.conf
-fi
-
-# Copy generated config to default location
-cp config/nginx.conf /etc/nginx/nginx.conf
-
-# 8. Start Supervisord
+# 7. Start Supervisord (Gunicorn serves on 8080 directly, no Nginx needed)
 echo "[entrypoint] Starting Supervisord..."
 exec supervisord -c /home/frappe/frappe-bench/supervisord.conf

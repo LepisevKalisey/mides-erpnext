@@ -4,7 +4,6 @@ FROM frappe/erpnext:v16.19.1
 USER root
 RUN apt-get update && apt-get install -y \
     supervisor \
-    nginx \
     mariadb-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,9 +46,6 @@ COPY entrypoint.sh /home/frappe/frappe-bench/entrypoint.sh
 RUN sed -i 's/\r$//' /home/frappe/frappe-bench/entrypoint.sh && \
     chmod +x /home/frappe/frappe-bench/entrypoint.sh && \
     chown frappe:frappe /home/frappe/frappe-bench/entrypoint.sh
-
-# Adjust permissions for directories so frappe user can run nginx and supervisord without root
-RUN chown -R frappe:frappe /var/log/nginx /var/lib/nginx /run /etc/nginx
 
 # Switch back to frappe for running the container
 USER frappe
