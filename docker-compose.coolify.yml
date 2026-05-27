@@ -9,6 +9,7 @@ x-volumes: &volumes
 services:
   erpnext:
     image: *image
+    pull_policy: always
     entrypoint: ["/home/frappe/frappe-bench/entrypoint.sh"]
     deploy:
       restart_policy:
