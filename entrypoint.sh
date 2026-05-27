@@ -99,7 +99,8 @@ done
 
 # 7. Generate Nginx config
 echo "[entrypoint] Generating Nginx config..."
-bench set-config -g webserver_port 8080
+bench set-config -g webserver_port 8000
+bench --site "$SITE_NAME" set-nginx-port 8080
 bench setup nginx
 
 # Modify config to be runnable by non-root user 'frappe'
