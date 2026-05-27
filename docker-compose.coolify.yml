@@ -3,10 +3,7 @@
 
 services:
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: on-failure
@@ -16,11 +13,11 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: RfaZd6PEHzNHsmDX
-      MARIADB_ROOT_PASSWORD: RfaZd6PEHzNHsmDX
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
 
   configurator:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: none
@@ -47,7 +44,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   create-site:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: none
@@ -110,13 +107,13 @@ services:
       - --collation-server=utf8mb4_unicode_ci
       - --skip-character-set-client-handshake
     environment:
-      MYSQL_ROOT_PASSWORD: RfaZd6PEHzNHsmDX
-      MARIADB_ROOT_PASSWORD: RfaZd6PEHzNHsmDX
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       - db-data:/var/lib/mysql
 
   frontend:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     depends_on:
       - websocket
     deploy:
@@ -140,7 +137,7 @@ services:
       - "8080"
 
   queue-long:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: on-failure
@@ -157,7 +154,7 @@ services:
       FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
 
   queue-short:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: on-failure
@@ -186,7 +183,7 @@ services:
         condition: on-failure
 
   scheduler:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: on-failure
@@ -198,7 +195,7 @@ services:
       - logs:/home/frappe/frappe-bench/logs
 
   websocket:
-    image: mides-erpnext-custom:latest
+    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
     deploy:
       restart_policy:
         condition: on-failure
