@@ -1,0 +1,8 @@
+.env
+docker-compose.override.yml
+tmp_body.json
+__pycache__/
+*.pyc
+*.pyo
+.idea/
+.vscode/

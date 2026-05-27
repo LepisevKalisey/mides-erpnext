@@ -1,0 +1,208 @@
+# MidesCloud ERPNext — Тестовая сборка
+# Запуск: docker compose up -d
+# Доступ: http://localhost:8080 (Administrator / admin)
+
+services:
+  # ─── База данных ─────────────────────────────────
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+      MYSQL_DATABASE: _global
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: mysqladmin ping -h localhost --password=${DB_ROOT_PASSWORD:-admin}
+      interval: 5s
+      retries: 10
+
+  # ─── Redis ───────────────────────────────────────
+  redis-cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-cache-data:/data
+
+  redis-queue:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-queue-data:/data
+
+  # ─── Конфигуратор (запускается один раз) ─────────
+  configurator:
+    image: frappe/erpnext:v16.19.1
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_started
+      redis-queue:
+        condition: service_started
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host $$DB_HOST;
+        bench set-config -gp db_port $$DB_PORT;
+        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
+        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
+        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
+        bench set-config -gp socketio_port $$SOCKETIO_PORT;
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      REDIS_CACHE: redis-cache:6379
+      REDIS_QUEUE: redis-queue:6379
+      SOCKETIO_PORT: "9000"
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # ─── Создание сайта (один раз) ──────────────────
+  create-site:
+    image: frappe/erpnext:v16.19.1
+    restart: "no"
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    entrypoint:
+      - bash
+      - -c
+    command:
+      - >
+        wait-for-it -t 120 db:3306;
+        wait-for-it -t 120 redis-cache:6379;
+        wait-for-it -t 120 redis-queue:6379;
+        export start=`date +%s`;
+        until [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".db_host // empty"` ]] && \
+              [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_cache // empty"` ]] && \
+              [[ -n `grep -hs ^ sites/common_site_config.json | jq -r ".redis_queue // empty"` ]];
+        do
+          echo "Waiting for configurator...";
+          sleep 5;
+          if (( `date +%s`-start > 120 )); then
+            echo "Timeout waiting for configurator";
+            exit 1;
+          fi;
+        done;
+        echo "Configurator ready, checking site...";
+        if [ ! -f sites/mides.localhost/site_config.json ]; then
+          echo "Creating site mides.localhost...";
+          bench new-site --mariadb-root-password ${DB_ROOT_PASSWORD:-admin} --admin-password ${ADMIN_PASSWORD:-admin} --install-app erpnext --no-mariadb-socket mides.localhost;
+        else
+          echo "Site already exists, skipping creation.";
+        fi;
+        bench --site mides.localhost set-config developer_mode 1;
+        bench --site mides.localhost clear-cache;
+    environment:
+      DB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # ─── Backend (Gunicorn) ─────────────────────────
+  backend:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-admin}
+
+  # ─── WebSocket (Socket.IO) ──────────────────────
+  websocket:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # ─── Background Workers ─────────────────────────
+  queue-short:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command: bench worker --queue short,default
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  queue-long:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command: bench worker --queue long
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # ─── Scheduler (cron jobs) ──────────────────────
+  scheduler:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command: bench schedule
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+
+  # ─── Frontend (Nginx) ───────────────────────────
+  frontend:
+    image: frappe/erpnext:v16.19.1
+    restart: unless-stopped
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      FRAPPE_SITE_NAME_HEADER: mides.localhost
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    volumes:
+      - sites:/home/frappe/frappe-bench/sites
+      - logs:/home/frappe/frappe-bench/logs
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:
+  redis-cache-data:
+  redis-queue-data:
+  sites:
+  logs:
