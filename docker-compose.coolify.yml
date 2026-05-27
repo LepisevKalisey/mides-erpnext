@@ -26,6 +26,7 @@ services:
       - -c
     command:
       - >
+        echo "=== Configurator starting ===";
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -33,6 +34,13 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
+
+        echo "=== Copying assets to shared volume ===";
+        rm -rf sites/assets 2>/dev/null;
+        cp -r /home/frappe/frappe-bench/assets sites/assets;
+        echo "Assets copied: $$(du -sh sites/assets | cut -f1)";
+
+        echo "=== Configurator done ===";
     environment:
       DB_HOST: db
       DB_PORT: "3306"
@@ -58,42 +66,50 @@ services:
       - -c
     command:
       - >
-        (
+        set -e;
+        echo "=== Waiting for services ===";
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
+        echo "=== All services ready ===";
+
         if [ ! -f "sites/frontend/site_config.json" ]; then
-            echo "No site found. Creating new site: frontend";
-            bench new-site frontend --db-root-password "$$MYSQL_ROOT_PASSWORD" --admin-password admin --install-app erpnext --force;
+            echo "=== Creating new site: frontend ===";
+            bench new-site frontend
+                --db-root-password "$$MYSQL_ROOT_PASSWORD"
+                --admin-password admin
+                --install-app erpnext
+                --force;
+            echo "=== Site created ===";
+        else
+            echo "=== Site already exists, skipping creation ===";
         fi;
-        for site_path in sites/*/; do
-            site_name=$$(basename "$$site_path")
-            if [ "$$site_name" != "assets" ] && [ "$$site_name" != "languages" ] && [ -f "$${site_path}site_config.json" ]; then
-                echo "Running migration for site: $$site_name";
-                bench --site "$$site_name" migrate;
-                for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki clefincode_chat mint saas_theme workboard; do
-                    echo "Installing app $$app on site $$site_name...";
-                    bench --site "$$site_name" install-app $$app || true;
-                done;
-            fi;
+
+        echo "=== Fixing DB user permissions ===";
+        DB_USER=$$(python3 -c "import json; c=json.load(open('sites/frontend/site_config.json')); print(c['db_user'])");
+        DB_PASS=$$(python3 -c "import json; c=json.load(open('sites/frontend/site_config.json')); print(c['db_password'])");
+        mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "
+            GRANT ALL PRIVILEGES ON \`$$DB_USER\`.* TO '$$DB_USER'@'%' IDENTIFIED BY '$$DB_PASS';
+            FLUSH PRIVILEGES;
+        " && echo "DB permissions fixed for $$DB_USER@%" || echo "WARNING: Could not fix DB permissions";
+
+        echo "=== Running migrations ===";
+        bench --site frontend migrate;
+
+        echo "=== Installing apps ===";
+        for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki clefincode_chat mint saas_theme workboard; do
+            echo "Installing $$app...";
+            bench --site frontend install-app $$app || echo "WARNING: $$app install failed (may already be installed)";
         done;
-        ) > sites/create_site_execution.txt 2>&1;
-        echo "=== LOGS LIST ===" > sites/bench_logs.txt;
-        ls -la logs >> sites/bench_logs.txt;
-        for log_file in logs/*; do
-            if [ -f "$$log_file" ]; then
-                echo "=== CONTENT OF $$log_file (LAST 200 LINES) ===" >> sites/bench_logs.txt;
-                tail -n 200 "$$log_file" >> sites/bench_logs.txt 2>&1;
-            fi;
-        done;
-        for site_path in sites/*/; do
-            site_name=$$(basename "$$site_path")
-            if [ "$$site_name" != "assets" ] && [ "$$site_name" != "languages" ] && [ -f "$${site_path}site_config.json" ]; then
-                mkdir -p "$${site_path}public/files";
-                cp sites/create_site_execution.txt "$${site_path}public/files/create_site_execution.log";
-                cp sites/bench_logs.txt "$${site_path}public/files/bench_logs.log";
-            fi;
-        done;
+
+        echo "=== Rebuilding assets on shared volume ===";
+        bench build;
+        rm -rf sites/assets 2>/dev/null;
+        cp -r /home/frappe/frappe-bench/assets sites/assets;
+        echo "Assets rebuilt: $$(du -sh sites/assets | cut -f1)";
+
+        echo "=== Create-site complete ===";
+
 
   db:
     image: mariadb:11.8
