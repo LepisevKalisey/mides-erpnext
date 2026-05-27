@@ -1,5 +1,5 @@
-# MidesCloud ERPNext — Coolify deployment
-# Image: ghcr.io/lepisevkalisey/mides-erpnext
+# MidesCloud ERPNext — Monolithic Coolify deployment
+# Image: ghcr.io/lepisevkalisey/mides-erpnext:develop
 
 x-image: &image ghcr.io/lepisevkalisey/mides-erpnext:develop
 x-volumes: &volumes
@@ -7,193 +7,32 @@ x-volumes: &volumes
   - logs:/home/frappe/frappe-bench/logs
 
 services:
-  # ─── Init: configure bench settings + ensure assets symlink ───
-  configurator:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: none
-    entrypoint: ["bash", "-c"]
-    command:
-      - >
-        echo "[configurator] Writing apps.txt...";
-        ls -1 apps > sites/apps.txt;
-        bench set-config -g db_host $$DB_HOST;
-        bench set-config -gp db_port $$DB_PORT;
-        bench set-config -g redis_cache "redis://$$REDIS_CACHE";
-        bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
-        bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
-        bench set-config -gp socketio_port $$SOCKETIO_PORT;
-        echo "[configurator] Ensuring assets symlink...";
-        rm -rf sites/assets 2>/dev/null;
-        ln -sf /home/frappe/frappe-bench/assets sites/assets;
-        echo "[configurator] Done. apps=$$(wc -l < sites/apps.txt)";
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      REDIS_CACHE: redis-cache:6379
-      REDIS_QUEUE: redis-queue:6379
-      SOCKETIO_PORT: "9000"
-    volumes: *volumes
-
-  # ─── Init: create site if not exists, migrate, install apps ───
-  create-site:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: none
-    entrypoint: ["bash", "-c"]
-    command:
-      - >
-        echo "[create-site] Waiting for dependencies...";
-        wait-for-it -t 120 db:3306;
-        wait-for-it -t 120 redis-cache:6379;
-        wait-for-it -t 120 redis-queue:6379;
-        echo "[create-site] Dependencies ready.";
-
-        SITE_CONFIG="sites/frontend/site_config.json"
-        SHOULD_CREATE=0
-        if [ ! -f "$$SITE_CONFIG" ]; then
-            echo "[create-site] site_config.json not found — will create site.";
-            SHOULD_CREATE=1
-        else
-            echo "[create-site] site_config.json found — checking if database exists in MariaDB...";
-            DB_NAME=$$(python3 -c "import json; print(json.load(open('$$SITE_CONFIG')).get('db_name', ''))" 2>/dev/null || echo "")
-            if [ -z "$$DB_NAME" ]; then
-                echo "[create-site] Could not read db_name from site_config.json — recreating site.";
-                SHOULD_CREATE=1
-            else
-                DB_EXISTS=$$(mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "SHOW DATABASES LIKE '$$DB_NAME';" 2>/dev/null | grep "$$DB_NAME" || echo "")
-                if [ -z "$$DB_EXISTS" ]; then
-                    echo "[create-site] Database '$$DB_NAME' does not exist in MariaDB — recreating site.";
-                    SHOULD_CREATE=1
-                else
-                    echo "[create-site] Database '$$DB_NAME' exists.";
-                fi
-            fi
-        fi
-
-        if [ "$$SHOULD_CREATE" -eq 1 ]; then
-            bench new-site frontend --db-root-password "$$MYSQL_ROOT_PASSWORD" --admin-password admin --install-app erpnext --force;
-            echo "[create-site] Site created.";
-        else
-            echo "[create-site] Site and database exist — skipping creation.";
-        fi;
-
-        echo "[create-site] Fixing DB user GRANT for all container IPs...";
-        DB_USER=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_user'])");
-        DB_PASS=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_password'])");
-        mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON \`$$DB_USER\`.* TO '$$DB_USER'@'%' IDENTIFIED BY '$$DB_PASS'; FLUSH PRIVILEGES;" && echo "[create-site] GRANT OK" || echo "[create-site] GRANT failed (non-fatal)";
-
-        echo "[create-site] Running migrate...";
-        bench --site frontend migrate;
-
-        echo "[create-site] Installing apps...";
-        for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki clefincode_chat mint saas_theme workboard; do
-            echo "[create-site] install-app $$app";
-            bench --site frontend install-app $$app || true;
-        done;
-
-        echo "[create-site] Complete.";
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-    volumes: *volumes
-
-  # ─── Runtime services ───
-  backend:
+  erpnext:
     image: *image
     deploy:
       restart_policy:
         condition: on-failure
-    volumes: *volumes
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      REDIS_HOST: redis
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-
-  frontend:
-    image: *image
-    depends_on:
-      - websocket
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - nginx-entrypoint.sh
-    environment:
-      BACKEND: backend:8000
-      FRAPPE_SITE_NAME_HEADER: frontend
-      SOCKETIO: websocket:9000
-      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: "off"
-      PROXY_READ_TIMEOUT: 120
-      CLIENT_MAX_BODY_SIZE: 50m
     volumes: *volumes
     expose:
       - "8080"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
-  websocket:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - node
-      - /home/frappe/frappe-bench/apps/frappe/socketio.js
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    volumes: *volumes
-
-  scheduler:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - schedule
-    volumes: *volumes
-
-  queue-short:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - short,default
-    volumes: *volumes
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-
-  queue-long:
-    image: *image
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - long,default,short
-    volumes: *volumes
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-
-  # ─── Data services ───
   db:
     image: mariadb:11.8
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      start_period: 5s
-      interval: 5s
+      start_period: 10s
+      interval: 10s
       timeout: 5s
       retries: 5
     deploy:
@@ -209,13 +48,7 @@ services:
     volumes:
       - db-data:/var/lib/mysql
 
-  redis-queue:
-    image: redis:6.2-alpine
-    deploy:
-      restart_policy:
-        condition: on-failure
-
-  redis-cache:
+  redis:
     image: redis:6.2-alpine
     deploy:
       restart_policy:

@@ -1,6 +1,14 @@
 FROM frappe/erpnext:v16.19.1
 
-# Switch to frappe user to perform bench actions
+# Switch to root to install system dependencies
+USER root
+RUN apt-get update && apt-get install -y \
+    supervisor \
+    nginx \
+    mariadb-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Switch back to frappe to install apps and build assets
 USER frappe
 WORKDIR /home/frappe/frappe-bench
 
@@ -25,3 +33,23 @@ RUN bench get-app https://github.com/bhavesh95863/workboard
 
 # Build assets so they are compiled inside the image
 RUN bench build
+
+# Copy configurations and scripts as root to set correct permissions
+USER root
+
+# Copy supervisord config
+COPY supervisord.conf /home/frappe/frappe-bench/supervisord.conf
+RUN chown frappe:frappe /home/frappe/frappe-bench/supervisord.conf
+
+# Copy entrypoint script
+COPY entrypoint.sh /home/frappe/frappe-bench/entrypoint.sh
+RUN chmod +x /home/frappe/frappe-bench/entrypoint.sh && \
+    chown frappe:frappe /home/frappe/frappe-bench/entrypoint.sh
+
+# Adjust permissions for directories so frappe user can run nginx and supervisord without root
+RUN chown -R frappe:frappe /var/log/nginx /var/lib/nginx /run /etc/nginx
+
+# Switch back to frappe for running the container
+USER frappe
+
+ENTRYPOINT ["/home/frappe/frappe-bench/entrypoint.sh"]

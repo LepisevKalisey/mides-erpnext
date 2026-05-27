@@ -1,82 +1,60 @@
-# Docker Architecture — MiDES ERPNext
+# Docker Architecture — MiDES ERPNext (Monolithic)
 
 ## Принцип
 
-Один Docker-образ содержит **весь код и скомпилированные assets**.
-Все контейнеры используют один и тот же образ — разница только в `command`.
+Вся прикладная логика ERPNext, веб-сервер Nginx, планировщик задач (scheduler) и фоновые воркеры (workers) запускаются внутри **одного монолитного Docker-контейнера** под управлением **Supervisord**.
+СУБД MariaDB и кэш Redis работают во внешних контейнерах, что упрощает масштабирование данных и снижает нагрузку на ресурсы сервера.
 
 ## Схема
 
 ```
-┌─────────────── Docker Image ──────────────────┐
+┌─────────────── Docker Image (Monolith) ───────┐
 │  bench build → /home/frappe/.../assets/       │
 │  apps/ (frappe, erpnext, hrms, ...)          │
 │  env/ (python venv)                           │
+│  nginx (frontend port 8080)                   │
+│  supervisor (process manager)                 │
 └───────────────────────────────────────────────┘
-        ↓ один образ → все контейнеры
-
-┌── configurator ──┐  ┌── create-site ────────┐
-│ apps.txt          │  │ bench new-site        │
-│ common_site_config│  │ GRANT user@'%'        │
-│ assets → symlink  │  │ migrate + install-app │
-└───────────────────┘  └───────────────────────┘
-         ↘                   ↙
-    ┌── Shared Volume (sites) ──┐
-    │ assets → /home/../assets  │  ← symlink, НЕ копия
-    │ frontend/site_config.json │
-    │ common_site_config.json   │
-    │ apps.txt                  │
-    └───────────────────────────┘
-         ↗        ↑        ↖
-  ┌─────────┐ ┌───────┐ ┌───────────┐
-  │ backend │ │ nginx │ │ scheduler │ ...workers
-  │ gunicorn│ │ :8080 │ │ bench sched│
-  └─────────┘ └───────┘ └───────────┘
+        │
+        ▼ один контейнер erpnext запускает:
+ ┌──────────────── erpnext (monolith) ───────────┐
+ │  - nginx (port 8080)                          │
+ │  - gunicorn (port 8000)                       │
+ │  - socket.io (port 9000)                      │
+ │  - scheduler                                  │
+ │  - worker-short (short, default)              │
+ │  - worker-long (long, default, short)         │
+ └──────────────────────┬────────────────────────┘
+                        │
+         ┌──────────────┴──────────────┐
+         ▼                             ▼
+┌── db (MariaDB 11.8) ──┐     ┌── redis (Single) ──┐
+│  port 3306            │     │  port 6379         │
+└───────────────────────┘     └────────────────────┘
 ```
 
 ## Контейнеры
 
 | Контейнер | Тип | Что делает |
 |-----------|-----|-----------|
-| configurator | init (одноразовый) | Пишет config, создаёт symlink assets |
-| create-site | init (одноразовый) | Создаёт сайт, GRANT, migrate, install-app |
-| backend | runtime | Gunicorn — обрабатывает API запросы |
-| frontend | runtime | Nginx — проксирует к backend, отдаёт assets |
-| websocket | runtime | Socket.IO для realtime |
-| scheduler | runtime | Фоновые задачи по расписанию |
-| queue-short | runtime | Быстрые фоновые задачи |
-| queue-long | runtime | Длительные фоновые задачи |
-| db | data | MariaDB 11.8 |
-| redis-cache | data | Кеш |
-| redis-queue | data | Очередь задач |
+| `erpnext` | runtime (монолит) | Запускает Supervisord, который координирует работу Nginx, Gunicorn, Socket.io, Scheduler и Workers |
+| `db` | data | MariaDB 11.8 — хранилище базы данных ERPNext |
+| `redis` | data | Redis 6.2 — единое хранилище кэша (db 0) и очередей задач (db 1) |
 
 ## Volumes
 
 | Volume | Что хранит | Критичность |
 |--------|-----------|-------------|
 | `db-data` | Данные MariaDB | **КРИТИЧНО** — вся БД |
-| `sites` | site_config, assets symlink | Пересоздаётся автоматически |
-| `logs` | Логи приложений | Не критично |
+| `sites` | Конфигурации сайтов (site_config.json) и пользовательские файлы | **КРИТИЧНО** — файлы пользователей |
+| `logs` | Логи работы процессов Supervisord, Nginx, Gunicorn и воркеров | Не критично |
 
-## Почему symlink, а не копия assets
+## Инициализация и миграция при старте
 
-- **Все контейнеры = один образ** → путь `/home/frappe/frappe-bench/assets/` существует в каждом
-- Symlink `sites/assets → /home/.../assets` резолвится в каждом контейнере одинаково
-- Копирование 200+ МБ assets при каждом старте — бессмысленная трата времени
-- При обновлении образа assets обновляются автоматически
-
-## Деплой с нуля
-
-1. Создать Docker Compose сервис в Coolify
-2. Указать repo + docker-compose.coolify.yml
-3. Coolify создаёт volumes автоматически
-4. configurator → config + symlink
-5. create-site → новый сайт + все приложения
-6. backend/frontend/... стартуют и подключаются
-
-## Обновление
-
-1. Push в develop → GitHub Actions собирает новый образ
-2. Coolify webhook → pull нового образа
-3. Coolify перезапускает контейнеры
-4. create-site видит что сайт существует → только migrate + install-app новых
+Вся логика инициализации перенесена в `entrypoint.sh` монолитного контейнера `erpnext`:
+1. Скрипт ожидает доступности `db:3306` и `redis:6379`.
+2. Настраивает параметры подключения в `common_site_config.json`.
+3. Создает ассет-симлинки.
+4. Проверяет наличие сайта `frontend` и его базы данных в MariaDB. Если база данных пуста или отсутствует — автоматически инициализирует новый сайт через `bench new-site`.
+5. Применяет миграции (`bench migrate`) и проверяет установку кастомных приложений.
+6. Передает управление Supervisord, который запускает веб-сервер и фоновые процессы.
