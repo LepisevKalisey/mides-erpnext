@@ -4,6 +4,9 @@ FROM frappe/erpnext:v16.19.1
 USER frappe
 WORKDIR /home/frappe/frappe-bench
 
+# Set default configuration so that frontend builds can resolve socketio_port
+RUN bench set-config -g socketio_port 9000
+
 # Install custom apps (hrms, insights, print_designer, dfp_external_storage)
 RUN bench get-app hrms --branch version-16
 RUN bench get-app insights --branch main
