@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -49,3 +50,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger Coolify Deploy (Staging)
+        if: github.ref == 'refs/heads/develop' && secrets.COOLIFY_WEBHOOK_STAGING != ''
+        run: |
+          curl -L -X GET "${{ secrets.COOLIFY_WEBHOOK_STAGING }}"
+
+      - name: Trigger Coolify Deploy (Production)
+        if: github.ref == 'refs/heads/main' && secrets.COOLIFY_WEBHOOK_PRODUCTION != ''
+        run: |
+          curl -L -X GET "${{ secrets.COOLIFY_WEBHOOK_PRODUCTION }}"
