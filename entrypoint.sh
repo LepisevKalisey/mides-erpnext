@@ -3,12 +3,34 @@ set -e
 
 echo "[entrypoint] Starting monolithic entrypoint as $(whoami)..."
 
-# 1. Wait for MariaDB and Redis
+# 1. Wait for MariaDB and Redis using python3
 echo "[entrypoint] Waiting for MariaDB at $DB_HOST:3306..."
-wait-for-it -t 120 "$DB_HOST:3306"
+python3 -c "
+import socket, time, sys
+host = '$DB_HOST'
+port = 3306
+for _ in range(120):
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            sys.exit(0)
+    except OSError:
+        time.sleep(2)
+sys.exit(1)
+"
 
 echo "[entrypoint] Waiting for Redis at $REDIS_HOST:6379..."
-wait-for-it -t 120 "$REDIS_HOST:6379"
+python3 -c "
+import socket, time, sys
+host = '$REDIS_HOST'
+port = 6379
+for _ in range(120):
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            sys.exit(0)
+    except OSError:
+        time.sleep(2)
+sys.exit(1)
+"
 
 # 2. Configure bench common settings
 echo "[entrypoint] Configuring bench..."
