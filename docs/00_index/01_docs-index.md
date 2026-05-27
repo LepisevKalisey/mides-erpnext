@@ -23,6 +23,7 @@
 | 02 | [usability-evaluation.md](../02_research/02_usability-evaluation.md) | Анализ юзабилити и соответствия ERPNext бизнес-требованиям | ACTIVE |
 | 03 | [procurement-workflow.md](../02_research/03_procurement-workflow.md) | Управление снабжением: пул заявок, распределение и сверка счетов | ACTIVE |
 | 04 | [marketplace-apps-analysis.md](../02_research/04_marketplace-apps-analysis.md) | Анализ и выбор приложений маркетплейса | ACTIVE |
+| 05 | [pre-mortem-analysis.md](../02_research/05_pre-mortem-analysis.md) | Pre-mortem анализ рисков и точек отказа сборки | ACTIVE |
 
 ### 📁 03_decisions — Решения
 
