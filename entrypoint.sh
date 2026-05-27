@@ -42,6 +42,14 @@ bench set-config -g redis_socketio "redis://$REDIS_HOST:6379/1"
 bench set-config -gp socketio_port 9000
 # Gunicorn listens on 8080 directly (no Nginx proxy)
 bench set-config -g webserver_port 8080
+bench set-config -g dns_multitenancy 0
+bench set-config -g default_site "$SITE_NAME"
+
+# Ensure site symlink for Host routing (if dns_multitenancy is active or for fallback)
+echo "[entrypoint] Ensuring site symlinks..."
+if [ -d "sites/frontend" ] && [ ! -e "sites/devcloud.mides.kz" ]; then
+    ln -sf frontend sites/devcloud.mides.kz
+fi
 
 # Ensure assets symlink
 echo "[entrypoint] Ensuring assets symlink..."
