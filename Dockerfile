@@ -11,7 +11,7 @@ RUN bench set-config -g socketio_port 9000
 RUN bench get-app hrms --branch version-16
 RUN bench get-app insights --branch main
 RUN bench get-app print_designer --branch main
-RUN bench get-app dfp_external_storage --branch develop
+RUN bench get-app https://github.com/developmentforpeople/dfp_external_storage --branch develop
 
 # Build assets so they are compiled inside the image
 RUN bench build
