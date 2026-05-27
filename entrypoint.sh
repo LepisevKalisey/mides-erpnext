@@ -80,6 +80,14 @@ echo "[entrypoint] Generating Nginx config..."
 bench set-config -g webserver_port 8080
 bench setup nginx
 
+# Modify config to be runnable by non-root user 'frappe'
+echo "[entrypoint] Adjusting Nginx config for non-root execution..."
+sed -i '/user /d' config/nginx.conf
+sed -i 's|pid /.*|pid /home/frappe/nginx.pid;|g' config/nginx.conf
+if ! grep -q "pid " config/nginx.conf; then
+    sed -i '1s|^|pid /home/frappe/nginx.pid;\n|' config/nginx.conf
+fi
+
 # Copy generated config to default location
 cp config/nginx.conf /etc/nginx/nginx.conf
 
