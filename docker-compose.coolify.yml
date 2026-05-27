@@ -1,32 +1,22 @@
-# MidesCloud ERPNext — based on official frappe_docker/pwd.yml
-# Adapted for Coolify with cloud.mides.kz
+# MidesCloud ERPNext — Coolify deployment
+# Image: ghcr.io/lepisevkalisey/mides-erpnext
+
+x-image: &image ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
+x-volumes: &volumes
+  - sites:/home/frappe/frappe-bench/sites
+  - logs:/home/frappe/frappe-bench/logs
 
 services:
-  backend:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    deploy:
-      restart_policy:
-        condition: on-failure
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      DB_HOST: db
-      DB_PORT: "3306"
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-
+  # ─── Init: configure bench settings + ensure assets symlink ───
   configurator:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
+    image: *image
     deploy:
       restart_policy:
         condition: none
-    entrypoint:
-      - bash
-      - -c
+    entrypoint: ["bash", "-c"]
     command:
       - >
-        echo "=== Configurator starting ===";
+        echo "[configurator] Writing apps.txt...";
         ls -1 apps > sites/apps.txt;
         bench set-config -g db_host $$DB_HOST;
         bench set-config -gp db_port $$DB_PORT;
@@ -34,83 +24,156 @@ services:
         bench set-config -g redis_queue "redis://$$REDIS_QUEUE";
         bench set-config -g redis_socketio "redis://$$REDIS_QUEUE";
         bench set-config -gp socketio_port $$SOCKETIO_PORT;
-
-        echo "=== Copying assets to shared volume ===";
+        echo "[configurator] Ensuring assets symlink...";
         rm -rf sites/assets 2>/dev/null;
-        cp -r /home/frappe/frappe-bench/assets sites/assets;
-        echo "Assets copied: $$(du -sh sites/assets | cut -f1)";
-
-        echo "=== Configurator done ===";
+        ln -sf /home/frappe/frappe-bench/assets sites/assets;
+        echo "[configurator] Done. apps=$$(wc -l < sites/apps.txt)";
     environment:
       DB_HOST: db
       DB_PORT: "3306"
       REDIS_CACHE: redis-cache:6379
       REDIS_QUEUE: redis-queue:6379
       SOCKETIO_PORT: "9000"
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
+    volumes: *volumes
 
+  # ─── Init: create site if not exists, migrate, install apps ───
   create-site:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
+    image: *image
     deploy:
       restart_policy:
         condition: none
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    entrypoint:
-      - bash
-      - -c
+    entrypoint: ["bash", "-c"]
     command:
       - >
-        set -e;
-        echo "=== Waiting for services ===";
+        echo "[create-site] Waiting for dependencies...";
         wait-for-it -t 120 db:3306;
         wait-for-it -t 120 redis-cache:6379;
         wait-for-it -t 120 redis-queue:6379;
-        echo "=== All services ready ===";
+        echo "[create-site] Dependencies ready.";
 
         if [ ! -f "sites/frontend/site_config.json" ]; then
-            echo "=== Creating new site: frontend ===";
+            echo "[create-site] No site found — creating...";
             bench new-site frontend
                 --db-root-password "$$MYSQL_ROOT_PASSWORD"
                 --admin-password admin
                 --install-app erpnext
                 --force;
-            echo "=== Site created ===";
+            echo "[create-site] Site created.";
         else
-            echo "=== Site already exists, skipping creation ===";
+            echo "[create-site] Site exists — skipping creation.";
         fi;
 
-        echo "=== Fixing DB user permissions ===";
-        DB_USER=$$(python3 -c "import json; c=json.load(open('sites/frontend/site_config.json')); print(c['db_user'])");
-        DB_PASS=$$(python3 -c "import json; c=json.load(open('sites/frontend/site_config.json')); print(c['db_password'])");
+        echo "[create-site] Fixing DB user GRANT for all container IPs...";
+        DB_USER=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_user'])");
+        DB_PASS=$$(python3 -c "import json; print(json.load(open('sites/frontend/site_config.json'))['db_password'])");
         mariadb -h db -u root -p"$$MYSQL_ROOT_PASSWORD" -e "
             GRANT ALL PRIVILEGES ON \`$$DB_USER\`.* TO '$$DB_USER'@'%' IDENTIFIED BY '$$DB_PASS';
             FLUSH PRIVILEGES;
-        " && echo "DB permissions fixed for $$DB_USER@%" || echo "WARNING: Could not fix DB permissions";
+        " && echo "[create-site] GRANT OK" || echo "[create-site] GRANT failed (non-fatal)";
 
-        echo "=== Running migrations ===";
+        echo "[create-site] Running migrate...";
         bench --site frontend migrate;
 
-        echo "=== Installing apps ===";
+        echo "[create-site] Installing apps...";
         for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki clefincode_chat mint saas_theme workboard; do
-            echo "Installing $$app...";
-            bench --site frontend install-app $$app || echo "WARNING: $$app install failed (may already be installed)";
+            echo "[create-site] install-app $$app";
+            bench --site frontend install-app $$app || true;
         done;
 
-        echo "=== Rebuilding assets on shared volume ===";
-        bench build;
-        rm -rf sites/assets 2>/dev/null;
-        cp -r /home/frappe/frappe-bench/assets sites/assets;
-        echo "Assets rebuilt: $$(du -sh sites/assets | cut -f1)";
+        echo "[create-site] Complete.";
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes: *volumes
 
-        echo "=== Create-site complete ===";
+  # ─── Runtime services ───
+  backend:
+    image: *image
+    deploy:
+      restart_policy:
+        condition: on-failure
+    volumes: *volumes
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
 
+  frontend:
+    image: *image
+    depends_on:
+      - websocket
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - nginx-entrypoint.sh
+    environment:
+      BACKEND: backend:8000
+      FRAPPE_SITE_NAME_HEADER: frontend
+      SOCKETIO: websocket:9000
+      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
+      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
+      UPSTREAM_REAL_IP_RECURSIVE: "off"
+      PROXY_READ_TIMEOUT: 120
+      CLIENT_MAX_BODY_SIZE: 50m
+    volumes: *volumes
+    expose:
+      - "8080"
 
+  websocket:
+    image: *image
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - node
+      - /home/frappe/frappe-bench/apps/frappe/socketio.js
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+    volumes: *volumes
+
+  scheduler:
+    image: *image
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - schedule
+    volumes: *volumes
+
+  queue-short:
+    image: *image
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - short,default
+    volumes: *volumes
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+
+  queue-long:
+    image: *image
+    deploy:
+      restart_policy:
+        condition: on-failure
+    command:
+      - bench
+      - worker
+      - --queue
+      - long,default,short
+    volumes: *volumes
+    environment:
+      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
+      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
+
+  # ─── Data services ───
   db:
     image: mariadb:11.8
     healthcheck:
@@ -132,64 +195,6 @@ services:
     volumes:
       - db-data:/var/lib/mysql
 
-  frontend:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    depends_on:
-      - websocket
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - nginx-entrypoint.sh
-    environment:
-      BACKEND: backend:8000
-      FRAPPE_SITE_NAME_HEADER: frontend
-      SOCKETIO: websocket:9000
-      UPSTREAM_REAL_IP_ADDRESS: 127.0.0.1
-      UPSTREAM_REAL_IP_HEADER: X-Forwarded-For
-      UPSTREAM_REAL_IP_RECURSIVE: "off"
-      PROXY_READ_TIMEOUT: 120
-      CLIENT_MAX_BODY_SIZE: 50m
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    expose:
-      - "8080"
-
-  queue-long:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - long,default,short
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-
-  queue-short:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - worker
-      - --queue
-      - short,default
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-
   redis-queue:
     image: redis:6.2-alpine
     deploy:
@@ -202,36 +207,7 @@ services:
       restart_policy:
         condition: on-failure
 
-  scheduler:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - bench
-      - schedule
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-
-  websocket:
-    image: ghcr.io/lepisevkalisey/mides-erpnext:${IMAGE_TAG:-develop}
-    deploy:
-      restart_policy:
-        condition: on-failure
-    command:
-      - node
-      - /home/frappe/frappe-bench/apps/frappe/socketio.js
-    environment:
-      FRAPPE_REDIS_CACHE: redis://redis-cache:6379
-      FRAPPE_REDIS_QUEUE: redis://redis-queue:6379
-    volumes:
-      - sites:/home/frappe/frappe-bench/sites
-      - logs:/home/frappe/frappe-bench/logs
-
 volumes:
   db-data:
-  redis-queue-data:
   sites:
   logs:
-
