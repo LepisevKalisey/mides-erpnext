@@ -23,10 +23,8 @@ services:
     expose:
       - "8080"
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
+      - db
+      - redis
 
   db:
     image: mariadb:11.8
