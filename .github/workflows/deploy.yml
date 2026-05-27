@@ -52,11 +52,15 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trigger Coolify Deploy (Staging)
-        if: github.ref == 'refs/heads/develop' && secrets.COOLIFY_WEBHOOK_STAGING != ''
+        if: github.ref == 'refs/heads/develop' && env.COOLIFY_WEBHOOK_STAGING != ''
+        env:
+          COOLIFY_WEBHOOK_STAGING: ${{ secrets.COOLIFY_WEBHOOK_STAGING }}
         run: |
-          curl -L -X GET "${{ secrets.COOLIFY_WEBHOOK_STAGING }}"
+          curl -L -X GET "$COOLIFY_WEBHOOK_STAGING"
 
       - name: Trigger Coolify Deploy (Production)
-        if: github.ref == 'refs/heads/main' && secrets.COOLIFY_WEBHOOK_PRODUCTION != ''
+        if: github.ref == 'refs/heads/main' && env.COOLIFY_WEBHOOK_PRODUCTION != ''
+        env:
+          COOLIFY_WEBHOOK_PRODUCTION: ${{ secrets.COOLIFY_WEBHOOK_PRODUCTION }}
         run: |
-          curl -L -X GET "${{ secrets.COOLIFY_WEBHOOK_PRODUCTION }}"
+          curl -L -X GET "$COOLIFY_WEBHOOK_PRODUCTION"
