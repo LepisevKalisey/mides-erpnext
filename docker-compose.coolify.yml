@@ -67,7 +67,7 @@ services:
             if [ "$$site_name" != "assets" ] && [ "$$site_name" != "languages" ] && [ -f "$${site_path}site_config.json" ]; then
                 echo "Running migration for site: $$site_name";
                 bench --site "$$site_name" migrate;
-                for app in hrms print_designer insights dfp_external_storage; do
+                for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki; do
                     echo "Installing app $$app on site $$site_name...";
                     bench --site "$$site_name" install-app $$app || true;
                 done;

@@ -18,5 +18,17 @@
   {
     "url": "https://github.com/developmentforpeople/dfp_external_storage",
     "branch": "develop"
+  },
+  {
+    "url": "https://github.com/omfsakib/pwa_frappe",
+    "branch": "main"
+  },
+  {
+    "url": "https://github.com/frappe/eps",
+    "branch": "version-16"
+  },
+  {
+    "url": "https://github.com/frappe/wiki",
+    "branch": "develop"
   }
 ]
