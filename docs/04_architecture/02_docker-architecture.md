@@ -12,14 +12,12 @@
 │  bench build → /home/frappe/.../assets/       │
 │  apps/ (frappe, erpnext, hrms, ...)          │
 │  env/ (python venv)                           │
-│  nginx (frontend port 8080)                   │
 │  supervisor (process manager)                 │
 └───────────────────────────────────────────────┘
         │
         ▼ один контейнер erpnext запускает:
  ┌──────────────── erpnext (monolith) ───────────┐
- │  - nginx (port 8080)                          │
- │  - gunicorn (port 8000)                       │
+ │  - gunicorn (port 8080)                       │
  │  - socket.io (port 9000)                      │
  │  - scheduler                                  │
  │  - worker-short (short, default)              │
@@ -37,7 +35,7 @@
 
 | Контейнер | Тип | Что делает |
 |-----------|-----|-----------|
-| `erpnext` | runtime (монолит) | Запускает Supervisord, который координирует работу Nginx, Gunicorn, Socket.io, Scheduler и Workers |
+| `erpnext` | runtime (монолит) | Запускает Supervisord, который координирует работу Gunicorn (веб-сервер), Socket.io, Scheduler и Workers |
 | `db` | data | MariaDB 11.8 — хранилище базы данных ERPNext |
 | `redis` | data | Redis 6.2 — единое хранилище кэша (db 0) и очередей задач (db 1) |
 
@@ -47,7 +45,7 @@
 |--------|-----------|-------------|
 | `db-data` | Данные MariaDB | **КРИТИЧНО** — вся БД |
 | `sites` | Конфигурации сайтов (site_config.json) и пользовательские файлы | **КРИТИЧНО** — файлы пользователей |
-| `logs` | Логи работы процессов Supervisord, Nginx, Gunicorn и воркеров | Не критично |
+| `logs` | Логи работы процессов Supervisord, Gunicorn и воркеров | Не критично |
 
 ## Инициализация и миграция при старте
 
@@ -57,4 +55,4 @@
 3. Создает ассет-симлинки.
 4. Проверяет наличие сайта `frontend` и его базы данных в MariaDB. Если база данных пуста или отсутствует — автоматически инициализирует новый сайт через `bench new-site`.
 5. Применяет миграции (`bench migrate`) и проверяет установку кастомных приложений.
-6. Передает управление Supervisord, который запускает веб-сервер и фоновые процессы.
+6. Передает управление Supervisord, который запускает Gunicorn (веб-сервер) и фоновые процессы.

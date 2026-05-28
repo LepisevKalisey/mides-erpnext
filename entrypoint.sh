@@ -40,8 +40,8 @@ bench set-config -g redis_cache "redis://$REDIS_HOST:6379/0"
 bench set-config -g redis_queue "redis://$REDIS_HOST:6379/1"
 bench set-config -g redis_socketio "redis://$REDIS_HOST:6379/1"
 bench set-config -gp socketio_port 9000
-# Gunicorn listens on 8080 directly (no Nginx proxy)
-bench set-config -g webserver_port 8080
+# Gunicorn listens on 8000 internally (proxied by Nginx)
+bench set-config -g webserver_port 8000
 bench set-config -g dns_multitenancy 0
 bench set-config -g default_site "$SITE_NAME"
 
@@ -107,6 +107,6 @@ for app in hrms print_designer insights dfp_external_storage pwa_frappe eps wiki
     bench --site "$SITE_NAME" install-app "$app" || true
 done
 
-# 7. Start Supervisord (Gunicorn serves on 8080 directly, no Nginx needed)
+# 7. Start Supervisord (Supervisord will run Gunicorn on 8000 and Nginx on 8080)
 echo "[entrypoint] Starting Supervisord..."
 exec supervisord -c /home/frappe/frappe-bench/supervisord.conf
