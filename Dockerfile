@@ -1,6 +1,6 @@
 FROM frappe/erpnext:v16.19.1
 
-# Switch to root to install system dependencies
+# 1. Switch to root to install system dependencies (rarely changes)
 USER root
 RUN apt-get update && apt-get install -y \
     supervisor \
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
     mariadb-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Switch back to frappe to install apps and build assets
+# 2. Switch back to frappe to install apps and build assets (slow, changes only when apps list or branches change)
 USER frappe
 WORKDIR /home/frappe/frappe-bench
 
@@ -34,7 +34,8 @@ RUN bench get-app https://github.com/bhavesh95863/workboard
 # Build assets so they are compiled inside the image
 RUN bench build
 
-# Copy configurations and scripts as root to set correct permissions
+# 3. Copy configurations and scripts (changes frequently during deployment debugging)
+# We do this at the very end to maximize Docker layer cache utilization!
 USER root
 
 # Copy Nginx config

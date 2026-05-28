@@ -35,6 +35,7 @@
 | 04 | [marketplace-apps-selection.md](../03_decisions/04_marketplace-apps-selection.md) | Выбор и интеграция приложений маркетплейса (HR, Print Designer, Insights, S3) | ACTIVE |
 | 05 | [branching-and-update-strategy.md](../03_decisions/05_branching-and-update-strategy.md) | Стратегия ветвления репозиториев и безопасного обновления ERPNext | ACTIVE |
 | 06 | [switch-to-monolithic-docker.md](../03_decisions/06_switch-to-monolithic-docker.md) | Переход на монолитный Docker-образ для оптимизации ресурсов | ACTIVE |
+| 07 | [optimize-docker-build-time.md](../03_decisions/07_optimize-docker-build-time.md) | Перенос сборки в Coolify и оптимизация кэширования слоев Docker | ACTIVE |
 
 ### 📁 04_architecture — Архитектура
 

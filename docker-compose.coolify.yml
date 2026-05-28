@@ -3,16 +3,15 @@
 # Gunicorn serves HTTP directly on port 8080 (no internal Nginx)
 # Traefik in Coolify acts as the only reverse proxy
 
-x-image: &image ghcr.io/lepisevkalisey/mides-erpnext:develop
-
 x-volumes: &volumes
   - sites:/home/frappe/frappe-bench/sites
   - logs:/home/frappe/frappe-bench/logs
 
 services:
   erpnext:
-    image: *image
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
     entrypoint: ["/home/frappe/frappe-bench/entrypoint.sh"]
     deploy:
       restart_policy:
