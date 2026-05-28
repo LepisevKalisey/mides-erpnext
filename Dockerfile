@@ -17,9 +17,7 @@ RUN bench set-config -g socketio_port 9000
 
 # Install custom apps
 # --- Core business apps ---
-# Install custom apps
-# --- Core business apps ---
-RUN --mount=type=cache,target=/home/frappe/.cache/pip \
+RUN --mount=type=cache,target=/home/frappe/.cache/pip,uid=1000,gid=1000 \
     bench get-app hrms --branch version-16 && \
     bench get-app insights --branch main && \
     bench get-app print_designer --branch main && \
@@ -29,14 +27,14 @@ RUN --mount=type=cache,target=/home/frappe/.cache/pip \
     bench get-app wiki --branch develop
 
 # --- Marketplace apps (Phase 1: Install + Test) ---
-RUN --mount=type=cache,target=/home/frappe/.cache/pip \
+RUN --mount=type=cache,target=/home/frappe/.cache/pip,uid=1000,gid=1000 \
     bench get-app https://github.com/clefincode/clefincode_chat --branch develop && \
     bench get-app https://github.com/The-Commit-Company/mint --branch develop && \
     bench get-app https://github.com/vineyrawat/saas_theme --branch version-16 && \
     bench get-app https://github.com/bhavesh95863/workboard
 
 # Build assets so they are compiled inside the image
-RUN --mount=type=cache,target=/home/frappe/.cache/yarn \
+RUN --mount=type=cache,target=/home/frappe/.cache/yarn,uid=1000,gid=1000 \
     bench build && \
     cp -R /home/frappe/frappe-bench/sites/assets /home/frappe/frappe-bench/assets && \
     cp /home/frappe/frappe-bench/sites/apps.txt /home/frappe/frappe-bench/apps.txt
