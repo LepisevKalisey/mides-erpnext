@@ -51,6 +51,10 @@ if [ -d "sites/frontend" ] && [ ! -e "sites/devcloud.mides.kz" ]; then
     ln -sf frontend sites/devcloud.mides.kz
 fi
 
+# Ensure apps.txt exists and matches the image
+echo "[entrypoint] Restoring apps.txt..."
+cp -f /home/frappe/frappe-bench/apps.txt sites/apps.txt
+
 # Ensure assets symlink
 echo "[entrypoint] Ensuring assets symlink..."
 rm -rf sites/assets 2>/dev/null
